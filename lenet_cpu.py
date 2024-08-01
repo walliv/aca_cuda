@@ -174,4 +174,4 @@ if __name__=="__main__":
 
         # Calculate and print accuracy
         accuracy = np.sum(results == test_labels[:len(results)]) / len(results)
-        print(f"Accuracy with multiplier {multiplier_type}: {accuracy}")
+        print(f"Accuracy with multiplier {multiplier_type}: {accuracy}"))
