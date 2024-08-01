@@ -48,7 +48,7 @@ def cuda_max_reduce_simple(a,b):
 @cuda.jit
 def cuda_max_reduce1d(inp_data, res):
     # Define shared memory
-    sdata = cuda.shared.array(shape=0, dtype=cuda.float32)
+    sdata = cuda.shared.array(shape=0, dtype=float32)
     
     # Calculate thread ID and data index
     tid = cuda.threadIdx.x
@@ -57,9 +57,10 @@ def cuda_max_reduce1d(inp_data, res):
     # Load input into shared memory
     mySum = 0.0
     if i < inp_data.shape[0]:
-        mySum = inpdata[i]
+        mySum = inp_data[i]
+
     if i + cuda.blockDim.x < inp_data.shape[0]:
-        mySum += inp_data[i + cuda.blockDim.x]
+        mySum = max(mySum, inp_data[i + cuda.blockDim.x])
     
     sdata[tid] = mySum
     cuda.syncthreads()
@@ -69,7 +70,7 @@ def cuda_max_reduce1d(inp_data, res):
     while s > 0:
 
         if tid < s:
-            sdata[tid] += sdata[tid + s]
+            sdata[tid] = max(sdata[tid],sdata[tid + s])
 
         s = s // 2
 
@@ -148,7 +149,8 @@ def cuda_matmul(a, b, res, mult):
     if i < res.shape[0] and j < res.shape[1]:
         tmp = 0
         for k in range(a.shape[1]):
-            tmp += mult[int(a[i, k])+128, int(b[k, j])+128]
+            #tmp += mult[int(a[i, k])+128, int(b[k, j])+128]
+            tmp += a[i, k] * b[k, j]
 
         res[i, j] = tmp
 

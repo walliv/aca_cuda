@@ -1,12 +1,96 @@
 
 import numpy as np
+import math
 
 from numba import cuda
 from scipy.signal import convolve2d
 
-from cuda_functions import cuda_convolve2d
+from cuda_functions import cuda_convolve2d, cuda_matmul, cuda_max_reduce1d
 
-def conv_kernel_test(mult_lookup):
+def matmul_test(mult_lookup,debug=False):
+
+    rng = np.random.default_rng()
+    mat_sizes = rng.integers(low=15, high = 256, size=300)
+
+    matrices = []
+    for i in range(0,200,3):
+        A = rng.integers(low=20, high=256, size=(mat_sizes[i],mat_sizes[i+1]))
+        B = rng.integers(low=20, high=256, size=(mat_sizes[i+1],mat_sizes[i+2]))
+
+        ref_result = np.matmul(A,B)
+
+        d_matA = cuda.to_device(A)        
+        d_matB = cuda.to_device(B)        
+        d_mat_res = cuda.device_array((A.shape[0], B.shape[1]))
+        h_mat_res = np.zeros((A.shape[0],B.shape[1]))
+
+        tpb = (16,16) 
+        bpg_x = math.ceil(h_mat_res.shape[0] / tpb[0])
+        bpg_y = math.ceil(h_mat_res.shape[1] / tpb[1])
+        bpg = (bpg_x, bpg_y)
+        print("Running multiplication with {} TPB and {} BPG".format(tpb, bpg))
+
+        cuda_matmul[bpg, tpb](d_matA, d_matB, d_mat_res, mult_lookup)
+
+        h_mat_res = d_mat_res.copy_to_host()
+        
+        assert np.array_equal(ref_result, h_mat_res)    
+
+def next_pow2(x):
+    return 1 << (x - 1).bit_length()
+
+def recalc_new_kern_params(size, max_thread_num=64):
+    if size < max_thread_num * 2:
+        tpb = next_pow2((size + 1) // 2)
+    else:
+        tpb = max_thread_num 
+
+    bpg = (size + (tpb * 2 - 1)) // (tpb * 2)
+
+    return bpg, tpb
+
+def max_reduction_test(debug=False):
+    no_of_tests = 500
+    rng = np.random.default_rng()
+    mat_sizes = rng.integers(low=15, high = 1024, size=no_of_tests)
+
+    matrices = []
+    for i in range(0,500,2):
+        mat = rng.integers(low=20, high=256, size=(mat_sizes[i],mat_sizes[i+1]))
+
+        print("No {}: Max reduction of a matrix with shape {}".format(i, mat.shape))
+        ref_res = np.max(mat)
+        flat_arr_len = mat.shape[0]*mat.shape[1]
+
+        bpg, tpb = recalc_new_kern_params(flat_arr_len)
+
+        d_mat = cuda.to_device(mat)
+        d_partial_sums = cuda.device_array(bpg, dtype=np.int32)
+        h_partial_sums = np.zeros(bpg)
+        d_res = cuda.device_array(1, dtype=np.int32)
+        h_res = np.zeros(1)
+
+        if debug: 
+            print("Kernel launch config: BPG {}, TPB: {} ".format(bpg,tpb))
+
+        cuda_max_reduce1d[bpg,tpb,0,tpb](d_mat.ravel(),d_partial_sums)
+
+        if debug:
+            h_partial_sums = d_partial_sums.copy_to_host().astype(int)
+            print("Intermediate result {} of len {}".format(h_partial_sums, len(h_partial_sums)))
+            print("The correct value is in the array: {}".format(ref_res in h_partial_sums))
+
+        cuda_max_reduce1d[1,tpb,0,tpb](d_partial_sums,d_res)
+
+        h_res = d_res.copy_to_host()
+
+        if debug:
+            print("Result of reduction {}".format(h_res))
+            print("Correct result {}".format(ref_res))
+
+        assert ref_res == h_res
+        
+def conv_kernel_test(mult_lookup, debug=False):
 
     rng = np.random.default_rng()
     img_sizes = rng.integers(low=15, high = 256, size=100)
@@ -52,9 +136,10 @@ def conv_kernel_test(mult_lookup):
         
             h_res = d_res.copy_to_host()
             
-            print("Orig image shape: ", img.shape)
-            print("Reference: ", ref_image, ", shape: ", ref_image.shape)
-            print("Computed: ", h_res, ", shape: ", h_res.shape)
+            if debug:
+                print("Orig image shape: ", img.shape)
+                print("Reference: ", ref_image, ", shape: ", ref_image.shape)
+                print("Computed: ", h_res, ", shape: ", h_res.shape)
     
             assert np.allclose(h_res,ref_image, atol=1e-6)
     
@@ -68,4 +153,17 @@ if __name__=="__main__":
                 [np.load(f"S_{i}.npy") for i in range(71, 75)] + \
                 [np.load(f"S_{i}.npy") for i in range(81, 85)]
  
-    conv_kernel_test(multipliers[0])
+    #print("===============================================================")
+    #print("Running test of convolution")
+    #print("===============================================================")
+    #conv_kernel_test(multipliers[0])
+
+    #print("===============================================================")
+    #print("Running test of matrix multiplication")
+    #print("===============================================================")
+    #matmul_test(multipliers[0])
+
+    print("===============================================================")
+    print("Running test of max reduction")
+    print("===============================================================")
+    max_reduction_test()

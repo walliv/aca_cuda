@@ -41,7 +41,7 @@ def model_forward_pass(d_input_feature, d_model_weights,  d_mult_lookup):
 
     cuda_max_reduce_simple(cio1, res=max_of_maxes)
 
-     
+    
 
     #relu1_output = np.round((relu1_output / np.max(relu1_output)) * 127)
     #
