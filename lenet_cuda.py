@@ -6,42 +6,58 @@ import tensorflow as tf
 import numpy as np
 from tensorflow import keras
 
-import cuda_functions
+from cuda_functions import cuda_zero_initialize, cuda_convolve2d, cuda_mat_add, cuda_maximum_elementwise, cuda_max_reduce1d_runner, cuda_polish_activation
+from misc_func import recalc_new_kern_params
 
-debug = True
-
-
-def model_forward_pass(d_input_feature, d_model_weights,  d_mult_lookup):
+def model_forward_pass_cuda(d_input_feature, d_model_weights, d_mult_lookup, debug=False):
     """
     Custom function to perform forward pass through the modified model.
     """
-    conv1_output = cuda.device_array([28, 28, 64], dtype=float32)
-    cuda_zero_initialize[1, conv1_output.shape](conv1_output)
-    cuda.synchronize()
-    
-    cio1 = cuda.device_array((28,28,64), dtype=float32)
-    cio2 = cuda.device_array((28,28,64), dtype=float32)
-
+    d_conv1_output = cuda.device_array((28, 28, 64), dtype=np.float32)
     for i in range(64):
-        cuda_convolve2d[1, (28,28)](d_input_feature, d_model_weights[0][:, :, 0, i], cio1[:,:,i], d_mult_lookup)
+        cuda_zero_initialize[(1,1), (32,32)](d_conv1_output[:,:,i])
+        cuda.synchronize()
 
-    cuda.synchronize()
+    #cuda.synchronize()
     
-    for i in range(64):
-        cuda_mat_add[1, (28,28)](cio1[:, :, i], d_model_weights[1][i], conv1_output[:, :, i])
+    if debug:
+        print("Initilize conv1_output to 0")
+        print("Shape of the weights: ", d_model_weights.shape)
 
-    cuda.synchronize()
+        for w in d_model_weights:
+            print(w.shape)
 
-    relu1_output = cuda.device_array([28, 28, 64], dtype=float32)
-    cuda_maximum_elementwise[1,(28,28,64)](0, conv1_output, cio1)
-
-    cuda.synchronize()
-
-    max_of_maxes = cuda.device_array((1,1), dtype=float32)
-
-    cuda_max_reduce_simple(cio1, res=max_of_maxes)
-
+    return d_conv1_output
     
+    #cio1 = cuda.device_array((28,28,64), dtype=np.float32)
+    #cio2 = cuda.device_array((28,28,64), dtype=np.float32)
+
+    #for i in range(64):
+    #    cuda_convolve2d[1, (32,32)](d_input_feature, d_model_weights[0][0][0][0][i], cio1[:,:,i], d_mult_lookup)
+
+    #cuda.synchronize()
+
+    #if debug:
+    #    print("Convolution 1 finished!")
+    #
+    #for i in range(64):
+    #    cuda_mat_add[1, (32,32)](cio1[:, :, i], d_model_weights[1][i], conv1_output[:, :, i])
+
+    #cuda.synchronize()
+
+    #relu1_output = cuda.device_array((28, 28, 64), dtype=np.float32)
+    #cuda_maximum_elementwise[1,(28,28,64)](0, conv1_output, relu1_output)
+
+    #cuda.synchronize()
+
+    #max_of_maxes = cuda.device_array(1, dtype=np.float32)
+
+    #bpg, tpb = recalc_new_kern_params(relu1_output.shape[0]*relu1_output.shape[1]*relu1_output.shape[2])
+    #max_of_maxes = cuda_max_reduce1d_runner(relu1_output, bpg, tpb, -1)
+    #    
+    #cuda.synchronize()
+
+    #cuda_polish_activation[1, (28,28,64)](relu1_output, max_of_maxes)
 
     #relu1_output = np.round((relu1_output / np.max(relu1_output)) * 127)
     #
@@ -95,7 +111,6 @@ def model_forward_pass(d_input_feature, d_model_weights,  d_mult_lookup):
     #fc3_output = np.round((fc3_output / np.max(fc3_output)) * 127)
     
     #return np.argmax(fc3_output)
-    return conv1_output
 
 if __name__=="__main__":
 
@@ -131,8 +146,6 @@ if __name__=="__main__":
     d_model_weights = cuda.to_device(model_weights)
     d_input_features = cuda.to_device(np.floor(input_features) / 2)
 
-    
-
     for multiplier_type in range(0, 20):
         d_mult_lookup = cuda.to_device(multipliers[multiplier_type])
 
@@ -142,7 +155,7 @@ if __name__=="__main__":
         results = []
         for image_index in range(1000):
 
-            results.append(model_forward_pass(d_input_features[image_index], d_model_weights, d_mult_lookup)
+            results.append(model_forward_pass_cuda(d_input_features[image_index], d_model_weights, d_mult_lookup))
             print(results)
             filename = f"Result_Approx_Multi_{multiplier_type}.npy"
             np.save(filename, results)
@@ -154,6 +167,6 @@ if __name__=="__main__":
 
         # Calculate and print accuracy
         accuracy = np.sum(results == test_labels[:len(results)]) / len(results)
-        print(f"Accuracy with multiplier {multiplier_type}: {accuracy}"))
-        print(f"Accuracy with multiplier {multiplier_type}: {accuracy}"))
+        print(f"Accuracy with multiplier {multiplier_type}: {accuracy}")
+        print(f"Accuracy with multiplier {multiplier_type}: {accuracy}")
     # Loop through different multiplier types and calculate results

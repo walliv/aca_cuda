@@ -1,6 +1,7 @@
 
 import numpy as np
 from numba import cuda, float32
+from misc_func import recalc_new_kern_params
 
 @cuda.jit
 def cuda_convolve2d(img, kern, res, mult):
@@ -41,10 +42,6 @@ def cuda_maximum_elementwise(scalar, inp_arr, res):
 
         res[i,j,k] = max(tmp,scalar);
 
-@cuda.reduce
-def cuda_max_reduce_simple(a,b):
-    return max(a,b)
-
 @cuda.jit
 def cuda_max_reduce1d(inp_data, res):
     # Define shared memory
@@ -80,53 +77,44 @@ def cuda_max_reduce1d(inp_data, res):
     if tid == 0:
         res[cuda.blockIdx.x] = sdata[0]
 
+def cuda_max_reduce1d_runner(d_array, bpg, tpb, ref_res, debug=False):
+    d_inp_mat = d_array.ravel()
+    d_partial_sums = cuda.device_array(bpg, dtype=np.float32)
+
+    h_partial_sums = np.zeros(bpg)
+
+    while (d_inp_mat.shape[0] > tpb):
+
+        if debug: 
+            print("Kernel launch config: BPG {}, TPB: {} ".format(bpg,tpb))
+
+        cuda_max_reduce1d[bpg,tpb,0,tpb](d_inp_mat,d_partial_sums)
+
+        if debug:
+            h_partial_sums = d_partial_sums.copy_to_host().astype(int)
+            print("Intermediate result {} of len {}".format(h_partial_sums, len(h_partial_sums)))
+            print("The correct value is in the array: {}".format(ref_res in h_partial_sums))
+
+        bpg, tpb = recalc_new_kern_params(bpg)
+        d_inp_mat = d_partial_sums
+        d_partial_sums = d_partial_sums[:bpg]
+
+    return d_partial_sums
+
 @cuda.jit
-def cuda_max_reduce2d(array, res):
-    # Define shared memory for block-wise reduction
-    sdata = cuda.shared.array(shape=0, dtype=cuda.float32)
-    
-    # Calculate thread ID and data index for 2D array
-    tx = cuda.threadIdx.x
-    ty = cuda.threadIdx.y
-    bx = cuda.blockIdx.x
-    by = cuda.blockIdx.y
-    bw = cuda.blockDim.x
-    bh = cuda.blockDim.y
+def cuda_polish_activation(arr, maxval):
+    i, j, k = cuda.grid(3)
 
-    i,j = cuda.grid(2)
-    
-    # Initialize local sum
-    mySum = 0.0
-    
-    # Load input into shared memory if within bounds
-    if i < array.shape[0] and j < array.shape[1]:
-        mySum = array[i, j]
-    
-    # Store into shared memory
-    sdata[ty * bw + tx] = mySum
-
-    cuda.syncthreads()
-    
-    # Reduction in shared memory
-    s = bw * bh // 2
-    tid = ty * bw + tx
-    
-    while s > 0:
-        if tid < s:
-            sdata[tid] += sdata[tid + s]
-        s //= 2
-        cuda.syncthreads()
-    
-    # Write result for this block to global memory
-    if tid == 0:
-        res[by, bx] = sdata[0]
+    if i < arr.shape[0] and j < arr.shape[1] and k < arr.shape[2]:
+        read_val = arr[i,j,k]
+        arr[i,j,k] = round((read_val / maxval) * 127)
 
 @cuda.jit
 def cuda_zero_initialize(res):
-    i, j, k = cuda.grid(3)
+    i, j = cuda.grid(2)
 
-    if i < res.shape[0] and j < res.shape[1] and k < res.shape[2]:
-        res[i,j,k] = 0
+    if i < res.shape[0] and j < res.shape[1]: 
+        res[i,j] = 0.0
     
 @cuda.jit
 def cuda_vect_add(a,b,res):
