@@ -9,27 +9,16 @@ def cuda_convolve2d(img, kern, res, mult):
 
     # TODO: Copy the kernel to the shared memory
     if i < (img.shape[0] - kern.shape[0] + 1) and j < (img.shape[1] - kern.shape[1] + 1):
-        tmp = 0
+
+        #if i == 0 and j == 0:
+        #    from pdb import set_trace; set_trace()
+
+        tmp = 0.0
 
         for k in range(kern.shape[0]):
             for l in range(kern.shape[1]):
                 #tmp += mult[int(kern[k,l])+128, int(img[i + k, j + l])+128]
-                tmp += kern[k,l] * img[i+k, j+l]
-
-        res[i,j] = tmp
-
-@cuda.jit
-def cuda_convolve_and_add(img, kern, res, mult):
-    i, j = cuda.grid(2)
-
-    # TODO: Copy the kernel to the shared memory
-    if i < (img.shape[0] - kern.shape[0] + 1) and j < (img.shape[1] - kern.shape[1] + 1):
-        tmp = res[i,j]
-
-        for k in range(kern.shape[0]):
-            for l in range(kern.shape[1]):
-                #tmp += mult[int(kern[k,l])+128, int(img[i + k, j + l])+128]
-                tmp += kern[k,l] * img[i+k, j+l]
+                tmp += img[i+k, j+l] * kern[k,l]
 
         res[i,j] = tmp
 
@@ -111,10 +100,10 @@ def cuda_polish_activation(arr, maxval):
 
 @cuda.jit
 def cuda_zero_initialize(res):
-    i, j = cuda.grid(2)
+    i, j, k = cuda.grid(3)
 
-    if i < res.shape[0] and j < res.shape[1]: 
-        res[i,j] = 0.0
+    if i < res.shape[0] and j < res.shape[1] and k < res.shape[2]: 
+        res[i,j, k] = 0.0
     
 @cuda.jit
 def cuda_vect_add(a,b,res):
@@ -148,3 +137,10 @@ def cuda_mat_add(a, b, c):
 
     if i < c.shape[0] and j < c.shape[1]:
         c[i,j] = a[i,j] + b[i,j]
+
+@cuda.jit
+def cuda_mat_scalar_add(arr, scalar, res):
+    i, j = cuda.grid(2)
+
+    if i < arr.shape[0] and j < arr.shape[1]:
+        res[i,j] = arr[i,j] + scalar 
