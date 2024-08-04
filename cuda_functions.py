@@ -17,7 +17,7 @@ def cuda_convolve2d(img, kern, res, layer_width, mult):
 
         for kr in range(kern.shape[0]):
             for kc in range(kern.shape[1]):
-                #tmp += mult[int(kern[kr,kc,z,layer_width])+128, int(img[i + kr, j + kc, z])+128]
+                #tmp += mult[int(kern[kr,kc,z,layer_width])+128, int(img[x + kr, y + kc, z])+128]
 
                 # Elementwise multiplication between the subset of an input
                 # image and a kernel.  Notice that kernels are contained in the
@@ -154,6 +154,21 @@ def cuda_vect_add(a,b,res):
         res[tid] = a[tid][0] + b[tid]
 
 @cuda.jit
+def cuda_matmul(a, b, res, mult):
+    """
+    Classical matrix multiplication
+    """
+    i, j = cuda.grid(2)
+
+    if i < res.shape[0] and j < res.shape[1]:
+        tmp = 0.0
+        for k in range(res.shape[1]):
+            #tmp += mult[int(a[i, k])+128, int(b[k, j])+128]
+            tmp += a[i, k] * b[k, j]
+
+        res[i, j] = tmp
+
+@cuda.jit
 def cuda_vect_matmul(a, b, res, mult):
     """
     This if for the multiplication of the row vector and the matrix.
@@ -163,7 +178,7 @@ def cuda_vect_matmul(a, b, res, mult):
     if i < res.shape[0] and j < res.shape[1]:
         tmp = 0.0
         for k in range(res.shape[1]):
-            #tmp += mult[int(a[i, k])+128, int(b[k, j])+128]
+            #tmp += mult[int(a[k])+128, int(b[k, j])+128]
             tmp += a[k] * b[k, j]
 
         res[i, j] = tmp

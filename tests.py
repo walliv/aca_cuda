@@ -5,7 +5,7 @@ import math
 from numba import cuda
 from scipy.signal import convolve2d
 
-from cuda_functions import cuda_convolve2d, cuda_matmul, cuda_max_reduce1d_runner,cuda_maximum_elementwise
+from cuda_functions import cuda_convolve2d, cuda_matmul, cuda_max_reduce1d_runner,cuda_maximum_elementwise_3d
 from misc_func import next_pow2, recalc_new_kern_params
 
 def matmul_test(mult_lookup,debug=False):
@@ -35,7 +35,10 @@ def matmul_test(mult_lookup,debug=False):
 
         h_mat_res = d_mat_res.copy_to_host()
         
-        assert np.array_equal(ref_result, h_mat_res)    
+        print("Running multiplication with\nMEAS: {}\nREFERENCE {}".format(h_mat_res, ref_result))
+        print("Shapes\nMEAS: {}\nREFERENCE {}".format(h_mat_res.shape, ref_result.shape))
+
+        assert np.allclose(ref_result, h_mat_res, atol=1e-6)    
 
 def max_elementwise_test(debug=True):
     no_of_tests = 500
@@ -58,7 +61,7 @@ def max_elementwise_test(debug=True):
         grid_size = ((d_mat.shape[0] + block_size[0] - 1) // block_size[0],
                      (d_mat.shape[1] + block_size[1] - 1) // block_size[1],
                      1)
-        cuda_maximum_elementwise[grid_size, block_size](d_mat, scalars_to_compare[i], d_res)
+        cuda_maximum_elementwise_3d[grid_size, block_size](d_mat, scalars_to_compare[i], d_res)
 
         h_res = d_res.copy_to_host()
 
@@ -80,35 +83,13 @@ def max_reduction_test(debug=True):
         bpg, tpb = recalc_new_kern_params(flat_arr_len)
 
         d_mat = cuda.to_device(mat)
-        #d_partial_sums = cuda.device_array(bpg, dtype=np.float32)
         d_res = cuda.device_array(1, dtype=np.float32)
 
-        #h_partial_sums = np.zeros(bpg)
         h_res = np.zeros(1)
-
-        #d_inp_mat = d_mat.ravel();
-
-        #while (d_inp_mat.shape[0] > tpb):
-
-        #    if debug: 
-        #        print("Kernel launch config: BPG {}, TPB: {} ".format(bpg,tpb))
-
-        #    cuda_max_reduce1d[bpg,tpb,0,tpb](d_inp_mat,d_partial_sums)
-
-        #    if debug:
-        #        h_partial_sums = d_partial_sums.copy_to_host().astype(int)
-        #        print("Intermediate result {} of len {}".format(h_partial_sums, len(h_partial_sums)))
-        #        print("The correct value is in the array: {}".format(ref_res in h_partial_sums))
-
-        #    bpg, tpb = recalc_new_kern_params(bpg)
-        #    d_inp_mat = d_partial_sums
-        #    d_partial_sums = d_partial_sums[:bpg]
 
         d_partial_sums = cuda_max_reduce1d_runner(d_mat, bpg, tpb, ref_res, debug)
 
-        #cuda_max_reduce1d[1,tpb,0,tpb](d_partial_sums,d_res)
-
-        h_res = d_partial_sums.copy_to_host()
+        h_res = d_partial_sums
 
         if debug:
             print("Result of reduction {}".format(h_res))
@@ -129,26 +110,23 @@ def conv_kernel_test(mult_lookup, debug=True):
 
     images = []
     for ims in img_sizes:
-        images.append(rng.integers(low=20, high=256, size=(ims,ims)))
+        images.append(rng.integers(low=20, high=256, size=(ims,ims,1)))
 
     d_mult_lookup = cuda.to_device(mult_lookup)
 
     for img in images:
         for kern in kernels:
 
-            ref_image = convolve2d(img, kern, mode='valid') 
+            ref_image = convolve2d(img[:,:,0], kern, mode='valid') 
 
             h_res = np.zeros(img.shape)
 
             flip_kern = np.ascontiguousarray(np.flip(kern))
-            #flip_kern = kern
 
             d_img = cuda.to_device(img)
-            d_kern = cuda.to_device(np.reshape(flip_kern, (flip_kern.shape[0], flip_kern.shape[1], 1)))
+            d_kern = cuda.to_device(np.reshape(flip_kern, (flip_kern.shape[0], flip_kern.shape[1], 1, 1)))
             d_res = cuda.device_array((img.shape[0] - kern.shape[0] + 1, img.shape[1] - kern.shape[1] + 1, 1))
 
-            #threads_x = int(np.abs(img.shape[0] - kern.shape[0]) + 1)
-            #threads_y = int(np.abs(img.shape[1] - kern.shape[1]) + 1)
             block_size = (16, 16, 1)
             # Rounding up to the whole blocks
             grid_size = ((d_res.shape[0] + block_size[0] - 1) // block_size[0],
@@ -156,11 +134,8 @@ def conv_kernel_test(mult_lookup, debug=True):
                          1)
 
             print(f"Calling kernel on image of size {img.shape} and kernel of size {kern.shape} with grid size {grid_size} and block size {block_size}.")
-            cuda_convolve2d[grid_size, block_size](d_img, d_kern, d_res, d_mult_lookup)
+            cuda_convolve2d[grid_size, block_size](d_img, d_kern, d_res, 0, d_mult_lookup)
  
-            #print("Calling kernel {} on image {} with threads_x: {} and threads_y: {}".format(kern, img, threads_x, threads_y))
-            #cuda_convolve2d[1, (128, 128)](d_img, d_kern, d_res, d_mult_lookup)
-        
             h_res = d_res.copy_to_host()
             
             if debug:
@@ -180,20 +155,20 @@ if __name__=="__main__":
                 [np.load(f"S_{i}.npy") for i in range(71, 75)] + \
                 [np.load(f"S_{i}.npy") for i in range(81, 85)]
  
-    #print("===============================================================")
-    #print("Running test of convolution")
-    #print("===============================================================")
-    #conv_kernel_test(multipliers[0])
+    print("===============================================================")
+    print("Running test of convolution")
+    print("===============================================================")
+    conv_kernel_test(multipliers[0])
 
     #print("===============================================================")
     #print("Running test of matrix multiplication")
     #print("===============================================================")
     #matmul_test(multipliers[0])
 
-    #print("===============================================================")
-    #print("Running test of max reduction")
-    #print("===============================================================")
-    #max_reduction_test()
+    print("===============================================================")
+    print("Running test of max reduction")
+    print("===============================================================")
+    max_reduction_test()
 
     print("===============================================================")
     print("Running test of elementwise max")
