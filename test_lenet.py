@@ -2,15 +2,17 @@
 import tensorflow as tf
 import numpy as np
 
+#import os
+#os.environ['NUMBA_ENABLE_CUDASIM'] = "1"
+
 from tensorflow import keras
 from numba import cuda, float32
 
-from lenet_cuda import model_forward_pass_cuda
-from lenet_cpu_numpy import model_forward_pass_numpy
-
-debug = True
+from model_pass_func import model_forward_pass_numpy, model_forward_pass_cuda
 
 if __name__=="__main__":
+
+    debug = False 
 
     # Load MNIST dataset
     mnist = tf.keras.datasets.mnist
@@ -21,7 +23,7 @@ if __name__=="__main__":
 
     # Get model weights and print model summary
     model_weights = model.get_weights()
-    # model.summary()
+    #model.summary()
 
     # use 1000 test image from mnist dataset
     batch_size = 10
@@ -35,26 +37,40 @@ if __name__=="__main__":
                 [np.load(f"S_{i}.npy") for i in range(81, 85)]
 
     if debug:
-        print ("Length of weights (", type(model_weights[0]), "): ", len(model_weights))
-        print(np.shape(multipliers[0]))
+        print("Shape of multipliers {}".format(np.shape(multipliers[0])))
     
+        print ("Length of weights (", type(model_weights[0]), "): ", len(model_weights))
+        print ("Weight shapes:")
+
         for w in model_weights:
             print(np.shape(w))
 
-    d_model_weights = cuda.to_device(model_weights)
-    d_input_features = cuda.to_device(np.floor(input_features) / 2)
 
     for multiplier_type in range(0, 20):
-        d_mult_lookup = cuda.to_device(multipliers[multiplier_type])
 
         results = []
-        for image_index in range(1000):
-            d_meas_result = model_forward_pass_cuda(d_input_features[image_index], d_model_weights, d_mult_lookup)
+        for img in input_features:
+            if debug: print ("Running pass of image {} with {} multiplier".format(img, multiplier_type))
+            ref_result = model_forward_pass_numpy(img, model_weights, debug)
 
-            h_meas_result = d_meas_result.copy_to_host()
+            print ("AFTER_NUMPY Length of weights (", type(model_weights[0]), "): ", len(model_weights))
+            print ("Weight shapes:")
 
-            ref_result = model_forward_pass_numpy(input_features, model_weights, image_index)
+            for w in model_weights:
+                print(np.shape(w))
 
-            print("Measured array: {}, \ncorrect array: {}".format(h_meas_result, ref_result))
+            meas_result = model_forward_pass_cuda(img, model_weights, multipliers[multiplier_type], debug)
+            
+            print ("AFTER_CUDA Length of weights (", type(model_weights[0]), "): ", len(model_weights))
+            print ("Weight shapes:")
 
-            assert np.array_equal(ref_result, h_meas_result)
+            for w in model_weights:
+                print(np.shape(w))
+
+            #from pdb import set_trace; set_trace()
+
+            #if debug:
+            print("Measured array: {}, \ncorrect array: {}".format(meas_result, ref_result))
+            print("Shapes MEAS: {}, \nCORRECT: {}".format(meas_result.shape, ref_result.shape))
+
+            assert np.array_equal(ref_result, meas_result)

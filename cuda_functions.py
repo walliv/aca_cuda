@@ -5,25 +5,26 @@ from misc_func import recalc_new_kern_params
 
 @cuda.jit
 def cuda_convolve2d(img, kern, res, mult):
-    i, j = cuda.grid(2)
+    x, y, z = cuda.grid(3)
 
     # TODO: Copy the kernel to the shared memory
-    if i < (img.shape[0] - kern.shape[0] + 1) and j < (img.shape[1] - kern.shape[1] + 1):
+    if x < (img.shape[0] - kern.shape[0] + 1) and y < (img.shape[1] - kern.shape[1] + 1) and z < kern.shape[3]:
 
         #if i == 0 and j == 0:
         #    from pdb import set_trace; set_trace()
 
         tmp = 0.0
 
-        for k in range(kern.shape[0]):
-            for l in range(kern.shape[1]):
+        for kr in range(kern.shape[0]):
+            for kc in range(kern.shape[1]):
                 #tmp += mult[int(kern[k,l])+128, int(img[i + k, j + l])+128]
-                tmp += img[i+k, j+l] * kern[k,l]
 
-        res[i,j] = tmp
+                tmp = tmp + (img[x+kr, y+kc] * kern[kr,kc,0,z])
+
+        res[x,y,z] = tmp
 
 @cuda.jit
-def cuda_maximum_elementwise(scalar, inp_arr, res):
+def cuda_maximum_elementwise(inp_arr, scalar, res):
     i, j, k = cuda.grid(3)
 
     if i < inp_arr.shape[0] and j < inp_arr.shape[1] and k < inp_arr.shape[2]:
@@ -140,7 +141,7 @@ def cuda_mat_add(a, b, c):
 
 @cuda.jit
 def cuda_mat_scalar_add(arr, scalar, res):
-    i, j = cuda.grid(2)
+    i, j, k = cuda.grid(3)
 
-    if i < arr.shape[0] and j < arr.shape[1]:
-        res[i,j] = arr[i,j] + scalar 
+    if i < arr.shape[0] and j < arr.shape[1] and k < arr.shape[2]:
+        res[i,j,k] = arr[i,j,k] + scalar[k] 

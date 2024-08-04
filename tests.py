@@ -89,7 +89,7 @@ def max_reduction_test(debug=True):
 
         assert ref_res == h_res
         
-def conv_kernel_test(mult_lookup, debug=False):
+def conv_kernel_test(mult_lookup, debug=True):
 
     rng = np.random.default_rng()
     img_sizes = rng.integers(low=15, high = 256, size=100)
@@ -117,15 +117,16 @@ def conv_kernel_test(mult_lookup, debug=False):
             #flip_kern = kern
 
             d_img = cuda.to_device(img)
-            d_kern = cuda.to_device(flip_kern)
-            d_res = cuda.device_array((img.shape[0] - kern.shape[0] + 1, img.shape[1] - kern.shape[1] + 1))
+            d_kern = cuda.to_device(np.reshape(flip_kern, (flip_kern.shape[0], flip_kern.shape[1], 1)))
+            d_res = cuda.device_array((img.shape[0] - kern.shape[0] + 1, img.shape[1] - kern.shape[1] + 1, 1))
 
             #threads_x = int(np.abs(img.shape[0] - kern.shape[0]) + 1)
             #threads_y = int(np.abs(img.shape[1] - kern.shape[1]) + 1)
-            block_size = (16, 16)
+            block_size = (16, 16, 1)
             # Rounding up to the whole blocks
             grid_size = ((d_res.shape[0] + block_size[0] - 1) // block_size[0],
-                         (d_res.shape[1] + block_size[1] - 1) // block_size[1])
+                         (d_res.shape[1] + block_size[1] - 1) // block_size[1],
+                         1)
 
             print(f"Calling kernel on image of size {img.shape} and kernel of size {kern.shape} with grid size {grid_size} and block size {block_size}.")
             cuda_convolve2d[grid_size, block_size](d_img, d_kern, d_res, d_mult_lookup)
@@ -138,9 +139,9 @@ def conv_kernel_test(mult_lookup, debug=False):
             if debug:
                 print("Orig image shape: ", img.shape)
                 print("Reference: ", ref_image, ", shape: ", ref_image.shape)
-                print("Computed: ", h_res, ", shape: ", h_res.shape)
+                print("Computed: ", h_res[:,:,0], ", shape: ", h_res.shape)
     
-            assert np.allclose(h_res,ref_image, atol=1e-6)
+            assert np.allclose(h_res[:,:,0],ref_image, atol=1e-6)
     
 
 
