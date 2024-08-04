@@ -1,8 +1,8 @@
-# -*- coding: utf-8 -*-
 """
-Created on Mon Aug  8 20:10:40 2022
+A testing of an accuracy of exactly implemented LeNet5 convolutional neural
+network that uses NumPy.
 
-@author: sshakibhamedan
+@author: walliv
 """
 
 import time
@@ -35,11 +35,8 @@ if __name__=="__main__":
     start_time = time.time()
 
     results = []
-    for image_index in range(1000):
+    for image_index in range(batch_size):
         results.append(model_forward_pass_numpy(input_features[image_index], model_weights))
-        print(results)
-        filename = f"Result_Exact_Multi.npy"
-        np.save(filename, results)
         print(results)
         print(np.size(results))
 
@@ -48,4 +45,4 @@ if __name__=="__main__":
 
     # Calculate and print accuracy
     accuracy = np.sum(results == test_labels[:len(results)]) / len(results)
-    print(f"Accuracy with NumPy multipliers: {accuracy}")
+    print(f"Accuracy with NumPy architecture: {accuracy}")

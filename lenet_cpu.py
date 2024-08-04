@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Created on Mon Aug  8 20:10:40 2022
+The LeNet5 CNN with custom multiplication and convolution functions.
 
-@author: sshakibhamedan
+@author: walli
 """
 
 import time
