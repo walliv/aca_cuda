@@ -5,7 +5,7 @@ import math
 from numba import cuda
 from scipy.signal import convolve2d
 
-from cuda_functions import cuda_convolve2d, cuda_matmul, cuda_max_reduce1d_runner
+from cuda_functions import cuda_convolve2d, cuda_matmul, cuda_max_reduce1d_runner,cuda_maximum_elementwise
 from misc_func import next_pow2, recalc_new_kern_params
 
 def matmul_test(mult_lookup,debug=False):
@@ -37,6 +37,33 @@ def matmul_test(mult_lookup,debug=False):
         
         assert np.array_equal(ref_result, h_mat_res)    
 
+def max_elementwise_test(debug=True):
+    no_of_tests = 500
+    rng = np.random.default_rng()
+    mat_sizes = rng.integers(low=15, high = 1024, size=no_of_tests)
+    scalars_to_compare = rng.integers(low=15, high = 1024, size=no_of_tests)
+
+    for i in range(0,no_of_tests,2):
+        matA = rng.integers(low=20, high=256, size=(mat_sizes[i],mat_sizes[i+1],1))
+        print("No {}: Elementwise maximum of a matrix with shape {}".format(i, matA.shape))
+
+        ref_res = np.maximum(scalars_to_compare[i], matA)
+
+
+        d_mat = cuda.to_device(matA)
+        #d_scalar = cuda.to_device(scalars_to_compare[i])
+        d_res = cuda.device_array_like(matA)
+
+        block_size = (16, 16, 1)
+        grid_size = ((d_mat.shape[0] + block_size[0] - 1) // block_size[0],
+                     (d_mat.shape[1] + block_size[1] - 1) // block_size[1],
+                     1)
+        cuda_maximum_elementwise[grid_size, block_size](d_mat, scalars_to_compare[i], d_res)
+
+        h_res = d_res.copy_to_host()
+
+        assert np.array_equal(h_res, ref_res)
+        
 def max_reduction_test(debug=True):
     no_of_tests = 500
     rng = np.random.default_rng()
@@ -153,10 +180,10 @@ if __name__=="__main__":
                 [np.load(f"S_{i}.npy") for i in range(71, 75)] + \
                 [np.load(f"S_{i}.npy") for i in range(81, 85)]
  
-    print("===============================================================")
-    print("Running test of convolution")
-    print("===============================================================")
-    conv_kernel_test(multipliers[0])
+    #print("===============================================================")
+    #print("Running test of convolution")
+    #print("===============================================================")
+    #conv_kernel_test(multipliers[0])
 
     #print("===============================================================")
     #print("Running test of matrix multiplication")
@@ -167,3 +194,8 @@ if __name__=="__main__":
     #print("Running test of max reduction")
     #print("===============================================================")
     #max_reduction_test()
+
+    print("===============================================================")
+    print("Running test of elementwise max")
+    print("===============================================================")
+    max_elementwise_test()

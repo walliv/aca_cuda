@@ -4,7 +4,7 @@ from numba import cuda, float32
 from misc_func import recalc_new_kern_params
 
 @cuda.jit
-def cuda_convolve2d(img, kern, res, mult):
+def cuda_convolve2d(img, kern, res, sec_kern_idx, mult):
     x, y, z = cuda.grid(3)
 
     # TODO: Copy the kernel to the shared memory
@@ -19,7 +19,7 @@ def cuda_convolve2d(img, kern, res, mult):
             for kc in range(kern.shape[1]):
                 #tmp += mult[int(kern[k,l])+128, int(img[i + k, j + l])+128]
 
-                tmp = tmp + (img[x+kr, y+kc] * kern[kr,kc,0,z])
+                tmp = tmp + (img[x+kr, y+kc] * kern[kr,kc,sec_kern_idx,z])
 
         res[x,y,z] = tmp
 
@@ -89,7 +89,7 @@ def cuda_max_reduce1d_runner(d_array, bpg, tpb, ref_res, debug=False):
         d_inp_mat = d_partial_sums
         d_partial_sums = d_partial_sums[:bpg]
 
-    return d_partial_sums
+    return d_partial_sums[0]
 
 @cuda.jit
 def cuda_polish_activation(arr, maxval):

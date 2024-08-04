@@ -16,7 +16,6 @@ def model_forward_pass_cuda(input_features, model_weights, mult_lookup, debug=Fa
     if debug:
         print("Before sending data to memory.")
 
-    #h_conv1_output = np.empty((28,28,64),dtype=np.float32)
     d_mw      = cuda.to_device(model_weights[0])
     d_inp_img = cuda.to_device(np.floor(input_features / 2))
     d_mult    = cuda.to_device(mult_lookup)
@@ -24,61 +23,35 @@ def model_forward_pass_cuda(input_features, model_weights, mult_lookup, debug=Fa
     d_conv1_output = cuda.device_array((28, 28, 64), dtype=np.float32)
     d_relu1_output = cuda.device_array((28, 28, 64), dtype=np.float32)
 
-    h_model_weights = d_mw.copy_to_host()
+    #h_model_weights = d_mw.copy_to_host()
 
-    print("h_model_weights:")
-    for w in model_weights:
-        print(np.shape(w))
+    #print("h_model_weights:")
+    #for w in model_weights:
+    #    print(np.shape(w))
 
-    #if debug:
-    #    print("Before memory allocation.")
-    #
-    #cuda_zero_initialize[(1,1,64), (32,32)](d_conv1_output)
+    cuda_convolve2d[(2,2,64), (16,16,1)](d_inp_img, d_mw, d_conv1_output, 0, d_mult)
 
-    #cuda.synchronize()
-
-    #cio2 = cuda.device_array((28,28,64), dtype=np.float32)
-
-    #for i in range(64):
-        #block_size = (16, 16)
-        # Rounding up to the whole blocks
-        #grid_size = ((28 + block_size[0] - 1) // block_size[0],
-                     #(28 + block_size[1] - 1) // block_size[1])
-
-    cuda_convolve2d[(2,2,64), (16,16,1)](d_inp_img, d_mw, d_conv1_output, d_mult)
-    cuda.synchronize()
-
-    #if debug:
-    #    print("Convolution 1 finished!")
-
-    h_conv1_output = d_conv1_output.copy_to_host()
-
-    h_model_weights = d_mw.copy_to_host()
-
-    print("h_model_weights:")
-    for w in model_weights:
-        print(np.shape(w))
-
-    return h_conv1_output
+    d_mw      = cuda.to_device(model_weights[1])
     
-    #for i in range(64):
-    #cuda_mat_scalar_add[(1,1,64), (32,32)](d_conv1_output, d_mw[1], d_conv1_output)
+    cuda_mat_scalar_add[(1,1,64), (32,32)](d_conv1_output, d_mw, d_conv1_output)
     #cuda.synchronize()
 
-    #cuda_maximum_elementwise[(1,1,64),(32,32)](d_conv1_output, 0, d_relu1_output)
+
+    cuda_maximum_elementwise[(1,1,64),(32,32)](d_conv1_output, 0, d_relu1_output)
     #cuda.synchronize()
 
-    #max_of_maxes = cuda.device_array(1, dtype=np.float32)
+    max_of_maxes = cuda.device_array(1, dtype=np.float32)
 
-    #bpg, tpb = recalc_new_kern_params(relu1_output.shape[0]*relu1_output.shape[1]*relu1_output.shape[2])
-    #max_of_maxes = cuda_max_reduce1d_runner(relu1_output, bpg, tpb, -1)
-    #    
+    bpg, tpb = recalc_new_kern_params(d_relu1_output.shape[0]*d_relu1_output.shape[1]*d_relu1_output.shape[2])
+    max_of_maxes = cuda_max_reduce1d_runner(d_relu1_output.ravel(), bpg, tpb, -1)
+    #cuda.synchronize()
+        
+    cuda_polish_activation[(1,1,64), (32,32)](d_relu1_output, max_of_maxes)
     #cuda.synchronize()
 
-    #cuda_polish_activation[1, (28,28,64)](relu1_output, max_of_maxes)
+    h_conv1_output = d_relu1_output.copy_to_host()
+    return h_conv1_output 
 
-    #relu1_output = np.round((relu1_output / np.max(relu1_output)) * 127)
-    #
     #conv2_output = cuda.device_array([28, 28, 32])
     #for i in range(32):
     #    for j in range(64):
@@ -150,14 +123,14 @@ def model_forward_pass_numpy(input_features, model_weights, debug=False):
     for i in range(64):
         for j in range(1):
             conv1_output[:, :, i] += convolve2d(conv1_input[:, :, j], np.flip(model_weights[0][:, :, j, i]), mode = "valid")
-        #conv1_output[:, :, i] += model_weights[1][i]
-
-    return conv1_output
-
+        conv1_output[:, :, i] += model_weights[1][i]
 
     relu1_output = np.maximum(0, conv1_output)
 
-    relu1_output = np.round((relu1_output / np.max(relu1_output)) * 127)
+    max_of_maxes = np.max(relu1_output)
+
+    relu1_output = np.round((relu1_output / max_of_maxes) * 127)
+    return relu1_output 
     
     #conv2_output = np.zeros([28, 28, 32])
     #for i in range(32):
